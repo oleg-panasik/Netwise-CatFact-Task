@@ -96,5 +96,8 @@ public class Program
         {
             Console.WriteLine("[WARNING] Nie udało się pobrać faktu o kotach.");
         }
+    Console.WriteLine("\n--- RUNNING UNIT TESTS ---");
+            await CatFactTests.Test_GetFact_ReturnsData();
+            await CatFactTests.Test_FileLogger_WritesToFile();
     }
 }
