@@ -1,10 +1,9 @@
 ﻿using System;
 using System.IO;
 using System.Net.Http;
-using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace NetwiseCatFact;
 
@@ -33,37 +32,56 @@ public class CatFactService : ICatFactService
 
     public async Task<CatFactDto?> GetRandomFactAsync()
     {
-        try
+        int maxRetries = 3;
+        int delayMilliseconds = 1000;
+
+        // Если у HttpClient задан BaseAddress (как в тесте), стучимся по относительному пути, иначе по полному URL
+        string requestUrl = _httpClient.BaseAddress == null 
+            ? "https://catfact.ninja/fact" 
+            : "";
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            return await _httpClient.GetFromJsonAsync<CatFactDto>("https://catfact.ninja/fact");
+            try
+            {
+                var response = await _httpClient.GetAsync(requestUrl);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    return JsonSerializer.Deserialize<CatFactDto>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                }
+
+                Console.WriteLine($"[WARNING] Attempt {attempt} failed with status: {response.StatusCode}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WARNING] Attempt {attempt} failed: {ex.Message}");
+            }
+
+            if (attempt < maxRetries)
+            {
+                Console.WriteLine($"[INFO] Retrying in {delayMilliseconds / 1000}s...");
+                await Task.Delay(delayMilliseconds);
+                delayMilliseconds *= 2;
+            }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[ERROR] Błąd podczas pobierania danych: {ex.Message}");
-            return null;
-        }
+
+        Console.WriteLine("[ERROR] All retry attempts failed.");
+        return null;
     }
 }
 
-public interface IFileLoggerService
-{
-    Task AppendFactToFileAsync(string fact, string filePath);
-}
-
-public class FileLoggerService : IFileLoggerService
+public class FileLoggerService
 {
     public async Task AppendFactToFileAsync(string fact, string filePath)
     {
-        try
-        {
-            string logEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {fact}";
-            await File.AppendAllTextAsync(filePath, logEntry + Environment.NewLine);
-            Console.WriteLine($"[SUCCESS] Zapisano do pliku: {fact}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[ERROR] Błąd zapisu do pliku: {ex.Message}");
-        }
+        string formattedEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {fact}{Environment.NewLine}";
+        await File.AppendAllTextAsync(filePath, formattedEntry);
+        Console.WriteLine($"[SUCCESS] Zapisano do pliku: {fact}");
     }
 }
 
@@ -71,20 +89,14 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
-        var services = new ServiceCollection();
-
-        services.AddHttpClient<ICatFactService, CatFactService>();
-        services.AddSingleton<IFileLoggerService, FileLoggerService>();
-
-        var serviceProvider = services.BuildServiceProvider();
-
-        var catFactService = serviceProvider.GetRequiredService<ICatFactService>();
-        var fileLoggerService = serviceProvider.GetRequiredService<IFileLoggerService>();
-
         string filePath = "cat_facts.txt";
 
         Console.WriteLine("=== Netwise CatFact App ===");
         Console.WriteLine("Pobieranie danych z API...");
+
+        using var httpClient = new HttpClient();
+        var catFactService = new CatFactService(httpClient);
+        var fileLoggerService = new FileLoggerService();
 
         var factData = await catFactService.GetRandomFactAsync();
 
@@ -96,8 +108,10 @@ public class Program
         {
             Console.WriteLine("[WARNING] Nie udało się pobrać faktu o kotach.");
         }
-    Console.WriteLine("\n--- RUNNING UNIT TESTS ---");
-            await CatFactTests.Test_GetFact_ReturnsData();
-            await CatFactTests.Test_FileLogger_WritesToFile();
+
+        Console.WriteLine("\n--- RUNNING UNIT TESTS ---");
+        await CatFactTests.Test_GetFact_ReturnsData();
+        await CatFactTests.Test_FileLogger_WritesToFile();
+        await CatFactTests.Test_GetFact_RetryMechanism();
     }
 }

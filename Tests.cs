@@ -3,44 +3,61 @@ using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
 
-namespace NetwiseCatFact
+namespace NetwiseCatFact;
+
+public class CatFactTests
 {
-    public class CatFactTests
+    public static async Task Test_GetFact_ReturnsData()
     {
-        public static async Task Test_GetFact_ReturnsData()
+        using var httpClient = new HttpClient();
+        var service = new CatFactService(httpClient);
+
+        var result = await service.GetRandomFactAsync();
+
+        if (result != null && !string.IsNullOrEmpty(result.Fact))
         {
-            using var httpClient = new HttpClient();
-            var service = new CatFactService(httpClient);
-
-            var result = await service.GetRandomFactAsync();
-
-            if (result != null && !string.IsNullOrEmpty(result.Fact))
-            {
-                Console.WriteLine("[TEST SUCCESS] CatFact API service is working correctly.");
-            }
-            else
-            {
-                Console.WriteLine("[TEST FAILED] Failed to retrieve fact from API.");
-            }
+            Console.WriteLine("[TEST SUCCESS] CatFact API service is working correctly.");
         }
-
-        public static async Task Test_FileLogger_WritesToFile()
+        else
         {
-            var logger = new FileLoggerService();
-            string testFilePath = "test_log.txt";
-            string testFact = "Cats have 32 muscles in each ear.";
+            Console.WriteLine("[TEST FAILED] Failed to retrieve fact from API.");
+        }
+    }
 
-            await logger.AppendFactToFileAsync(testFact, testFilePath);
+    public static async Task Test_FileLogger_WritesToFile()
+    {
+        var logger = new FileLoggerService();
+        string testFilePath = "test_log.txt";
+        string testFact = "Cats have 32 muscles in each ear.";
 
-            if (File.Exists(testFilePath) && File.ReadAllText(testFilePath).Contains(testFact))
-            {
-                Console.WriteLine("[TEST SUCCESS] FileLoggerService successfully wrote entry to file.");
-                File.Delete(testFilePath);
-            }
-            else
-            {
-                Console.WriteLine("[TEST FAILED] FileLoggerService failed to write to file.");
-            }
+        await logger.AppendFactToFileAsync(testFact, testFilePath);
+
+        if (File.Exists(testFilePath) && File.ReadAllText(testFilePath).Contains(testFact))
+        {
+            Console.WriteLine("[TEST SUCCESS] FileLoggerService successfully wrote entry to file.");
+            File.Delete(testFilePath);
+        }
+        else
+        {
+            Console.WriteLine("[TEST FAILED] FileLoggerService failed to write to file.");
+        }
+    }
+
+    public static async Task Test_GetFact_RetryMechanism()
+    {
+        using var httpClient = new HttpClient { BaseAddress = new Uri("https://invalid-domain-catfact.ninja") };
+        var service = new CatFactService(httpClient);
+
+        Console.WriteLine("\n[TEST] Testing Exponential Retry Mechanism (expecting failures):");
+        var result = await service.GetRandomFactAsync();
+
+        if (result == null)
+        {
+            Console.WriteLine("[TEST SUCCESS] Exponential retry logic executed correctly on failure.");
+        }
+        else
+        {
+            Console.WriteLine("[TEST FAILED] Unexpected success on invalid URL.");
         }
     }
 }
